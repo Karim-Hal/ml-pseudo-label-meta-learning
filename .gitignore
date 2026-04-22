@@ -1,0 +1,29 @@
+# Virtual environment
+meta_env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# OpenML raw data cache (large, re-downloadable)
+data/raw/
+
+# Trained model binaries (re-producible from notebooks)
+outputs/models/*.pkl
+
+# Claude Code internal files
+.claude/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/settings.json
