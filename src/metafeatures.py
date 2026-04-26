@@ -161,10 +161,12 @@ def extract_optA(X_tr, y_tr, X_te, y_te, n_cv_folds=5):
     # --- Sparsity ---
     feats["feature_sparsity"] = float((np.abs(Xs) < 0.01).mean())
 
-    # --- Coefficient of variation (mean across features) ---
+    # --- Coefficient of variation (mean across features, capped to avoid blow-up
+    #     when a feature mean is near zero) ---
     raw_std = X_tr.std(0) + 1e-8
     raw_mean_abs = np.abs(X_tr.mean(0)) + 1e-8
-    feats["cv_mean"] = float(np.mean(raw_std / raw_mean_abs))
+    cv_per_feat = np.clip(raw_std / raw_mean_abs, 0, 100)
+    feats["cv_mean"] = float(np.mean(cv_per_feat))
 
     return feats
 
