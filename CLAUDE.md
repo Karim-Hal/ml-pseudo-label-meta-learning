@@ -105,19 +105,21 @@ meta-feature extractor (Option C). These are two completely separate uses of the
 
 ## Meta-Feature Representations (3 Options for Ablation)
 
-### Option A — Hand-Crafted (Main Approach, ~20 features)
-Extracted via `pymfe`. Include at minimum:
+### Option A — Hand-Crafted (Main Approach, deployable features)
+Extract label-safe dataset descriptors only. The meta-learner input must be
+computable before true labels are available:
 - Hopkins statistic (clusterability)
-- n_instances, n_features, n_classes
-- Class imbalance ratio
+- n_instances, n_features, expected n_classes
 - Intrinsic dimensionality (PCA-based)
 - Mean pairwise Pearson correlation
 - Skewness mean, kurtosis mean
-- 1-NN accuracy (landmarker)
-- Decision stump accuracy (landmarker)
-- Inter-to-intra class similarity ratio
-- Silhouette landmarker score
-- Davies-Bouldin score
+- Feature sparsity and coefficient of variation
+- Unsupervised k-means landmarks: estimated imbalance, largest-cluster fraction,
+  silhouette, Davies-Bouldin, and inertia per sample
+
+Label-aware quantities such as true class entropy, true imbalance, inter/intra
+class ratio, true-label silhouette, and supervised landmarkers are diagnostics
+only. Prefix them with `diag_` and exclude them from meta-learner inputs.
 
 ### Option B — Autoencoder Bottleneck (Ablation 1)
 - MLP autoencoder trained per dataset (PyTorch)

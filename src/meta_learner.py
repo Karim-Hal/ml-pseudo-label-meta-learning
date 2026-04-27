@@ -12,8 +12,16 @@ from sklearn.model_selection import LeaveOneOut
 from sklearn.preprocessing import LabelEncoder
 
 LSE_COLS = ['LSE_kmeans', 'LSE_dbscan', 'LSE_agg', 'LSE_gmm', 'LSE_autoenc', 'LSE_dictlearn']
-META_COLS = ['dataset_id', 'best_method', 'gt_accuracy']
+META_COLS = [
+    'dataset_id',
+    'best_method',
+    'gt_accuracy',
+    'majority_accuracy',
+    'gt_lift_over_majority',
+    'failure_reason',
+]
 METHOD_NAMES = ['kmeans', 'dbscan', 'agg', 'gmm', 'autoenc', 'dictlearn']
+DIAGNOSTIC_PREFIXES = ('diag_',)
 
 
 def extract_Xy_clf(df):
@@ -23,7 +31,11 @@ def extract_Xy_clf(df):
     X      : float array (n_datasets, n_features)
     y_str  : string array of best_method labels
     """
-    feat_cols = [c for c in df.columns if c not in META_COLS + LSE_COLS]
+    feat_cols = [
+        c for c in df.columns
+        if c not in META_COLS + LSE_COLS
+        and not any(c.startswith(prefix) for prefix in DIAGNOSTIC_PREFIXES)
+    ]
     X = df[feat_cols].values.astype(float)
     y = df['best_method'].values
     ids = df['dataset_id'].values
@@ -36,7 +48,11 @@ def extract_Xy_reg(df):
 
     Y_lse  : float array (n_datasets, 6) of LSE values
     """
-    feat_cols = [c for c in df.columns if c not in META_COLS + LSE_COLS]
+    feat_cols = [
+        c for c in df.columns
+        if c not in META_COLS + LSE_COLS
+        and not any(c.startswith(prefix) for prefix in DIAGNOSTIC_PREFIXES)
+    ]
     X = df[feat_cols].values.astype(float)
     Y = df[LSE_COLS].values.astype(float)
     ids = df['dataset_id'].values
@@ -120,12 +136,14 @@ def loo_regress(pipeline, X, Y_lse, df_lse):
     true_best = df_lse['best_method'].values
     argmax_acc = float((pred_best == true_best).mean())
 
-    # Expected LSE: for each dataset, the actual LSE of the predicted method
+    # Expected LSE/regret: actual utility of predicted method versus oracle.
     expected_lse = np.array([
         Y_lse[i, pred_best_idx[i]]
         for i in range(len(Y_lse))
         if not nan_mask[i]
     ])
+    oracle_lse = np.nanmax(Y_lse[valid], axis=1)
+    regret = oracle_lse - expected_lse
 
     return {
         'mae_per_col': mae_per_col,
@@ -133,6 +151,45 @@ def loo_regress(pipeline, X, Y_lse, df_lse):
         'argmax_accuracy': argmax_acc,
         'predicted_lse': Y_pred,
         'expected_lse': float(np.nanmean(expected_lse)),
+        'mean_regret': float(np.nanmean(regret)),
+    }
+
+
+def classification_utility(results, df_lse):
+    """
+    Compute expected LSE and regret for a classification meta-learner result.
+
+    Top-1 accuracy can be harsh when several methods are nearly tied. This
+    reports the downstream utility actually obtained by the predicted method.
+    """
+    pred_methods = np.asarray(results['preds'])
+    true_methods = np.asarray(results['trues'])
+    y_cols = df_lse[LSE_COLS].values.astype(float)
+    method_to_idx = {name: i for i, name in enumerate(METHOD_NAMES)}
+
+    chosen_lse = []
+    oracle_lse = []
+    valid_mask = []
+    for i, pred in enumerate(pred_methods):
+        idx = method_to_idx.get(pred)
+        row = y_cols[i]
+        if idx is None or np.isnan(row[idx]) or np.isnan(row).all():
+            valid_mask.append(False)
+            continue
+        valid_mask.append(True)
+        chosen_lse.append(row[idx])
+        oracle_lse.append(np.nanmax(row))
+
+    chosen_lse = np.asarray(chosen_lse, dtype=float)
+    oracle_lse = np.asarray(oracle_lse, dtype=float)
+    regret = oracle_lse - chosen_lse
+
+    return {
+        'top1_accuracy': float((pred_methods == true_methods).mean()),
+        'expected_lse': float(np.nanmean(chosen_lse)),
+        'oracle_lse': float(np.nanmean(oracle_lse)),
+        'mean_regret': float(np.nanmean(regret)),
+        'valid_utility_rows': int(np.sum(valid_mask)),
     }
 
 
