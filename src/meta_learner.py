@@ -8,8 +8,16 @@ and regression (predict all 6 LSE values).
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
+from sklearn.ensemble import ExtraTreesClassifier, ExtraTreesRegressor, RandomForestClassifier, RandomForestRegressor
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import LeaveOneOut
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from sklearn.neural_network import MLPClassifier, MLPRegressor
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
 
 LSE_COLS = ['LSE_kmeans', 'LSE_dbscan', 'LSE_agg', 'LSE_gmm', 'LSE_autoenc', 'LSE_dictlearn']
 META_COLS = ['dataset_id', 'best_method', 'gt_accuracy']
@@ -152,3 +160,105 @@ def report_clf_results(label, results):
     from collections import Counter
     pred_dist = Counter(results['preds'])
     print(f"  {label:40s}  Top-1 acc = {acc:.3f}  pred_dist={dict(pred_dist)}")
+
+
+def build_classifier_candidates(best_k=1, random_state=42):
+    """
+    Candidate classifiers for the dataset-level meta-learning task.
+
+    The current notebook originally compares only kNN and MLP; these extra
+    candidates provide stronger baselines for small, imbalanced meta-tables.
+    """
+    return {
+        'kNN': Pipeline([
+            ('impute', SimpleImputer(strategy='median')),
+            ('scale', StandardScaler()),
+            ('clf', KNeighborsClassifier(n_neighbors=best_k)),
+        ]),
+        'LogReg': Pipeline([
+            ('impute', SimpleImputer(strategy='median')),
+            ('scale', StandardScaler()),
+            ('clf', LogisticRegression(
+                C=0.5,
+                max_iter=5000,
+                class_weight='balanced',
+                random_state=random_state,
+            )),
+        ]),
+        'SVC-RBF': Pipeline([
+            ('impute', SimpleImputer(strategy='median')),
+            ('scale', StandardScaler()),
+            ('clf', SVC(
+                kernel='rbf',
+                C=1.0,
+                gamma='scale',
+                class_weight='balanced',
+                random_state=random_state,
+            )),
+        ]),
+        'ExtraTrees': Pipeline([
+            ('impute', SimpleImputer(strategy='median')),
+            ('clf', ExtraTreesClassifier(
+                n_estimators=400,
+                min_samples_leaf=2,
+                class_weight='balanced_subsample',
+                random_state=random_state,
+            )),
+        ]),
+        'RF': Pipeline([
+            ('impute', SimpleImputer(strategy='median')),
+            ('clf', RandomForestClassifier(
+                n_estimators=400,
+                min_samples_leaf=2,
+                class_weight='balanced_subsample',
+                random_state=random_state,
+            )),
+        ]),
+        'MLP': Pipeline([
+            ('impute', SimpleImputer(strategy='median')),
+            ('scale', StandardScaler()),
+            ('clf', MLPClassifier(
+                hidden_layer_sizes=(64, 32),
+                alpha=1e-2,
+                max_iter=1500,
+                random_state=random_state,
+            )),
+        ]),
+    }
+
+
+def build_regressor_candidates(best_k=1, random_state=42):
+    """Candidate regressors for predicting the six raw LSE targets."""
+    return {
+        'kNN': Pipeline([
+            ('impute', SimpleImputer(strategy='median')),
+            ('scale', StandardScaler()),
+            ('reg', KNeighborsRegressor(n_neighbors=best_k)),
+        ]),
+        'RF': Pipeline([
+            ('impute', SimpleImputer(strategy='median')),
+            ('reg', RandomForestRegressor(
+                n_estimators=400,
+                min_samples_leaf=2,
+                random_state=random_state,
+            )),
+        ]),
+        'ExtraTrees': Pipeline([
+            ('impute', SimpleImputer(strategy='median')),
+            ('reg', ExtraTreesRegressor(
+                n_estimators=400,
+                min_samples_leaf=2,
+                random_state=random_state,
+            )),
+        ]),
+        'MLP': Pipeline([
+            ('impute', SimpleImputer(strategy='median')),
+            ('scale', StandardScaler()),
+            ('reg', MLPRegressor(
+                hidden_layer_sizes=(64, 32),
+                alpha=1e-2,
+                max_iter=1500,
+                random_state=random_state,
+            )),
+        ]),
+    }

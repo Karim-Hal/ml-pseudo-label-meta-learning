@@ -17,6 +17,7 @@ from sklearn.neighbors import KNeighborsClassifier, NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeClassifier
 from scipy.stats import skew, kurtosis
+from scipy.spatial.distance import pdist
 
 SEED = 42
 
@@ -67,6 +68,71 @@ def _intrinsic_dim_ratio(X):
     return float(k / X.shape[1])
 
 
+def _sample_rows(X, max_rows):
+    """Deterministic row subsample for expensive dataset-level statistics."""
+    if len(X) <= max_rows:
+        return X
+    rng = np.random.default_rng(SEED)
+    idx = rng.choice(len(X), size=max_rows, replace=False)
+    return X[idx]
+
+
+def _pairwise_distance_stats(X, max_rows=1200):
+    """
+    Pairwise Euclidean distance summary on a row sample.
+
+    These features help distinguish tightly structured datasets from
+    diffuse ones without running any clustering algorithm.
+    """
+    X_sub = _sample_rows(X, max_rows=max_rows)
+    if len(X_sub) < 3:
+        return 0.0, 0.0, 0.0
+    dists = pdist(X_sub, metric="euclidean")
+    mean_d = float(np.mean(dists))
+    std_d = float(np.std(dists))
+    cv_d = std_d / (mean_d + 1e-8)
+    p90_d = float(np.percentile(dists, 90))
+    return mean_d, cv_d, p90_d
+
+
+def _knn_distance_stats(X, k=5):
+    """Local density summary from k-nearest-neighbor distances."""
+    if len(X) <= k:
+        return 0.0, 0.0, 0.0
+    nbrs = NearestNeighbors(n_neighbors=k + 1).fit(X)
+    dists, _ = nbrs.kneighbors(X)
+    kth = dists[:, -1]
+    mean_k = float(np.mean(kth))
+    cv_k = float(np.std(kth) / (mean_k + 1e-8))
+    p90_k = float(np.percentile(kth, 90))
+    return mean_k, cv_k, p90_k
+
+
+def _pca_spectrum_stats(X):
+    """Compact summary of how variance is distributed across PCA axes."""
+    pca = PCA(random_state=SEED).fit(X)
+    var = np.clip(pca.explained_variance_ratio_, 1e-12, None)
+    top3 = float(var[: min(3, len(var))].sum())
+    if len(var) <= 1:
+        return top3, 0.0
+    entropy = float(-(var * np.log(var)).sum() / np.log(len(var)))
+    return top3, entropy
+
+
+def _correlation_structure(X):
+    """Redundancy summary from the feature-feature correlation matrix."""
+    d = X.shape[1]
+    if d < 2:
+        return 0.0, 0.0
+    corr = np.corrcoef(X.T)
+    corr = np.nan_to_num(corr, nan=0.0)
+    mask = ~np.eye(d, dtype=bool)
+    abs_corr = np.abs(corr[mask])
+    high_corr_frac = float((abs_corr > 0.8).mean())
+    corr_dispersion = float(abs_corr.std())
+    return high_corr_frac, corr_dispersion
+
+
 def _class_entropy(y):
     """Normalised class entropy (0 = pure, 1 = uniform)."""
     classes, counts = np.unique(y, return_counts=True)
@@ -86,7 +152,7 @@ def _imbalance_ratio(y):
 
 def extract_optA(X_tr, y_tr, X_te, y_te, n_cv_folds=5):
     """
-    Extract ~20 hand-crafted meta-features from training data.
+    Extract hand-crafted meta-features from training data.
 
     Parameters
     ----------
@@ -129,7 +195,21 @@ def extract_optA(X_tr, y_tr, X_te, y_te, n_cv_folds=5):
     feats["intrinsic_dim_ratio"] = _intrinsic_dim_ratio(Xs)
     pca = PCA(n_components=1, random_state=SEED).fit(Xs)
     feats["pca_var_pc1"] = float(pca.explained_variance_ratio_[0])
+    pca_top3_var, pca_entropy = _pca_spectrum_stats(Xs)
+    feats["pca_top3_var"] = pca_top3_var
+    feats["pca_entropy"] = pca_entropy
     feats["inter_intra_ratio"] = _inter_intra_ratio(Xs, y_tr)
+
+    # --- Unsupervised geometry / density summaries ---
+    pair_mean, pair_cv, pair_p90 = _pairwise_distance_stats(Xs)
+    feats["pairwise_dist_mean"] = pair_mean
+    feats["pairwise_dist_cv"] = pair_cv
+    feats["pairwise_dist_p90"] = pair_p90
+
+    knn_mean, knn_cv, knn_p90 = _knn_distance_stats(Xs, k=min(5, max(1, len(Xs) - 1)))
+    feats["knn5_dist_mean"] = knn_mean
+    feats["knn5_dist_cv"] = knn_cv
+    feats["knn5_dist_p90"] = knn_p90
 
     # --- Cluster quality with true labels (separability proxies) ---
     try:
@@ -160,11 +240,18 @@ def extract_optA(X_tr, y_tr, X_te, y_te, n_cv_folds=5):
 
     # --- Sparsity ---
     feats["feature_sparsity"] = float((np.abs(Xs) < 0.01).mean())
+    high_corr_frac, corr_dispersion = _correlation_structure(Xs)
+    feats["high_corr_frac"] = high_corr_frac
+    feats["corr_dispersion"] = corr_dispersion
+    feats["feature_std_dispersion"] = float(np.std(X_tr.std(axis=0)))
+    feats["zero_variance_frac"] = float((X_tr.std(axis=0) < 1e-8).mean())
 
-    # --- Coefficient of variation (mean across features) ---
+    # --- Coefficient of variation (mean across features, capped to avoid blow-up
+    #     when a feature mean is near zero) ---
     raw_std = X_tr.std(0) + 1e-8
     raw_mean_abs = np.abs(X_tr.mean(0)) + 1e-8
-    feats["cv_mean"] = float(np.mean(raw_std / raw_mean_abs))
+    cv_per_feat = np.clip(raw_std / raw_mean_abs, 0, 100)
+    feats["cv_mean"] = float(np.mean(cv_per_feat))
 
     return feats
 

@@ -53,7 +53,8 @@ project/
 │   ├── 02_lse_computation.ipynb ← Phase 1: Run 6 methods, compute LSE, build table
 │   ├── 03_metafeatures.ipynb    ← Phase 2: Extract all 3 meta-feature representations
 │   ├── 04_meta_learner.ipynb    ← Phase 3: Train kNN + MLP meta-learners, LOO-CV
-│   └── 05_shap_analysis.ipynb   ← Phase 4: SHAP beeswarm, feature importance
+│   ├── 05_shap_analysis.ipynb   ← Phase 4: SHAP beeswarm, feature importance
+│   └── 06_showcase_eval.ipynb   ← Phase 5: Held-out generalization test
 ├── src/
 │   ├── lse.py                   ← LSE computation, Hungarian alignment
 │   ├── clustering.py            ← all 6 pseudo-label generation methods
@@ -76,7 +77,7 @@ The central artifact of the project. Located at `data/meta_table/meta_training.c
 
 **Structure**:
 ```
-[dataset_id | meta-features ... | LSE_kmeans | LSE_dbscan | LSE_gmm | LSE_agg | LSE_autoenc | LSE_dictlearn | best_method]
+[dataset_id | meta-features ... | LSE_kmeans | LSE_dbscan | LSE_agg | LSE_gmm | LSE_autoenc | LSE_dictlearn | best_method]
 ```
 
 **Rules**:
