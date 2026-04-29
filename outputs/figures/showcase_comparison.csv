@@ -1,7 +1,0 @@
-dataset,dataset_id,n_classes,gt_acc,predicted_method,predicted_lse_actual,oracle_method,oracle_lse,kmeans_lse,hit,gap_vs_oracle,gain_vs_kmeans,true_lse_kmeans,true_lse_dbscan,true_lse_agg,true_lse_gmm,true_lse_autoenc,true_lse_dictlearn
-Iris,61,3,0.9,gmm,1.037,gmm,1.037,0.889,True,0.0,0.148,0.8889,0.7407,0.8889,1.037,0.9259,0.4444
-Wine,187,3,1.0,kmeans,1.0,kmeans,1.0,1.0,True,0.0,0.0,1.0,0.6389,0.9722,1.0,0.9722,0.6944
-Heart Disease (UCI),53,2,0.815,gmm,0.932,kmeans,1.0,1.0,False,0.068,-0.068,1.0,0.9773,0.9545,0.9318,0.9773,0.6136
-Diabetes (Pima),37,2,0.76,gmm,0.769,kmeans,0.88,0.88,False,0.111,-0.111,0.8803,0.8376,0.7692,0.7692,0.7265,0.735
-Vehicle Silhouettes,54,4,0.729,kmeans,0.54,kmeans,0.54,0.54,True,0.0,0.0,0.5403,0.3629,0.5242,0.5081,0.5,0.5
-Adult Income,1590,2,0.812,autoenc,0.943,gmm,0.962,0.797,False,0.019,0.147,0.7966,0.9361,0.9367,0.9623,0.9434,0.9358

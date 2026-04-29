@@ -16,14 +16,19 @@ platform (Upload → Predict → Run → Explain).
 **Label Substitution Efficiency (LSE)** is our novel target metric:
 
 ```
-LSE = Accuracy(trained on pseudo-labels) / Accuracy(trained on ground-truth labels)
+LSE = balanced_accuracy(RF on pseudo-labels) / balanced_accuracy(RF on true labels)
 ```
+
+Balanced accuracy is used throughout to handle class-imbalanced datasets correctly.
+The fixed RF uses `class_weight='balanced'` to prevent majority-class collapse.
 
 LSE = 1.0 means pseudo-labels are as good as human annotation.
 LSE = 0.7 means we recover 70% of supervised accuracy at zero annotation cost.
 
-The meta-learner predicts which of 6 clustering methods maximises LSE for a new dataset,
-using only dataset meta-features as input — no clustering is run at prediction time.
+The meta-learner predicts a **vector of 6 LSE values** for a new dataset;
+the recommended method is the argmax of that vector. This regression-first framing
+is more informative than direct classification: it reveals expected quality, not
+just a label.
 
 ---
 
@@ -41,22 +46,28 @@ using only dataset meta-features as input — no clustering is run at prediction
 
 ## Repository Structure
 
+Notebooks are organised by research question — each folder answers one RQ.
+
 ```
 project/
-├── CLAUDE.md                    ← this file
+├── CLAUDE.md
+├── README.md
+├── rq1_benchmark/               ← RQ1: Which method generates best pseudo-labels?
+│   ├── 01_data_pull.ipynb
+│   ├── 02_lse_computation.ipynb
+│   └── 03_method_redundancy.ipynb
+├── rq2_meta_features/           ← RQ2: What dataset properties predict method utility?
+│   └── 04_metafeatures.ipynb
+├── rq3_meta_learner/            ← RQ3: Can a meta-learner predict the best method?
+│   ├── 05_meta_learner.ipynb
+│   └── 06_shap_analysis.ipynb
+├── rq4_generalization/          ← RQ4: Does it generalize to unseen datasets?
+│   └── 07_showcase_eval.ipynb
 ├── data/
-│   ├── raw/                     ← OpenML downloads cached here (never commit)
-│   ├── meta_table/              ← meta-training CSV: meta-features + LSE targets
-│   └── showcase/                ← 8–10 held-out evaluation datasets (never in training)
-├── notebooks/
-│   ├── 01_data_pull.ipynb       ← Phase 1: OpenML pull + LSE computation loop
-│   ├── 02_lse_computation.ipynb ← Phase 1: Run 6 methods, compute LSE, build table
-│   ├── 03_metafeatures.ipynb    ← Phase 2: Extract all 3 meta-feature representations
-│   ├── 04_meta_learner.ipynb    ← Phase 3: Train kNN + MLP meta-learners, LOO-CV
-│   ├── 05_shap_analysis.ipynb   ← Phase 4: SHAP beeswarm, feature importance
-│   └── 06_showcase_eval.ipynb   ← Phase 5: Held-out generalization test
+│   ├── raw/                     ← OpenML cache (never commit)
+│   └── meta_table/              ← generated CSVs and checkpoints
 ├── src/
-│   ├── lse.py                   ← LSE computation, Hungarian alignment
+│   ├── lse.py                   ← LSE computation (balanced accuracy)
 │   ├── clustering.py            ← all 6 pseudo-label generation methods
 │   ├── metafeatures.py          ← Option A/B/C feature extraction
 │   └── hungarian.py             ← scipy linear_sum_assignment wrapper
@@ -104,52 +115,47 @@ meta-feature extractor (Option C). These are two completely separate uses of the
 
 ---
 
-## Meta-Feature Representations (3 Options for Ablation)
+## Meta-Feature Representations (5 Options for Ablation)
 
-### Option A — Hand-Crafted (Main Approach, ~20 features)
-Extracted via `pymfe`. Include at minimum:
-- Hopkins statistic (clusterability)
-- n_instances, n_features, n_classes
-- Class imbalance ratio
-- Intrinsic dimensionality (PCA-based)
-- Mean pairwise Pearson correlation
-- Skewness mean, kurtosis mean
-- 1-NN accuracy (landmarker)
-- Decision stump accuracy (landmarker)
-- Inter-to-intra class similarity ratio
-- Silhouette landmarker score
-- Davies-Bouldin score
+**K is fixed at 4** for Options B and C — all datasets produce the same-length vector
+regardless of n_classes. This removes dimensionality as a confound.
 
-### Option B — Autoencoder Bottleneck (Ablation 1)
-- MLP autoencoder trained per dataset (PyTorch)
-- Aggregate bottleneck activations: mean + variance across all rows
-- Output: 2K-dimensional vector per dataset
+| Option | Description | Dims | Role |
+|--------|-------------|------|------|
+| A | Hand-crafted (~30 via sklearn/scipy) | ~30 | Main approach |
+| B | Autoencoder bottleneck (fixed K=4) | 8 | Ablation |
+| C | Dictionary Learning sparse codes (fixed K=4) | 8 | Novel contribution |
+| A+B | A concatenated with B | ~38 | Additive test |
+| A+C | A concatenated with C | ~38 | Main novel claim |
+| Random | Random 8-dim features | 8 | Sanity baseline |
 
-### Option C — Dictionary Learning Sparse Codes (Ablation 2, Key Novel Input)
-- sklearn DictionaryLearning fitted per dataset
-- Aggregate sparse codes: mean + variance across all rows
-- Output: 2K-dimensional vector per dataset
-- This is the primary novel meta-feature contribution
+If B or C alone cannot beat the random baseline, they add no useful signal.
+If A+C beats A alone, dictionary learning adds information beyond hand-crafted features.
 
 ---
 
 ## LSE Computation — Exact Steps
 
-Apply identically for every method on every dataset. Never deviate from this procedure:
+Apply identically for every method on every dataset:
 
 1. Run clustering on features only (labels masked)
 2. Build count matrix: rows = cluster IDs, columns = true class labels
-3. Apply Hungarian algorithm (`scipy.optimize.linear_sum_assignment`) for optimal ID→class mapping
-4. Convert all cluster IDs to pseudo class labels using the mapping
-5. Train a **fixed** Random Forest (default sklearn params — do NOT tune) on pseudo-labeled training set
-6. Evaluate on held-out test set using TRUE labels (never pseudo-labels)
-7. `LSE = step_6_accuracy / groundtruth_rf_accuracy`
+3. Apply Hungarian algorithm for optimal cluster→class mapping
+4. Convert cluster IDs to pseudo-class labels using the mapping
+5. Train a **fixed** RF (`class_weight='balanced'`, `random_state=42`, no other tuning)
+6. Evaluate on held-out test set using TRUE labels
+7. `LSE = balanced_accuracy(step 6) / balanced_accuracy(groundtruth RF)`
 
-**Critical**: Use the same RF hyperparameters every time. LSE should reflect
-pseudo-label quality, not RF quality. Default sklearn settings, fixed random_state=42.
+**Balanced accuracy** is used because raw accuracy is misleading on imbalanced datasets.
+**class_weight='balanced'** prevents the RF from collapsing to majority-class prediction.
 
-**Groundtruth RF**: same RF trained on the true labels — compute once per dataset and reuse
-as the denominator for all 6 LSE calculations.
+**DBSCAN edge cases**:
+- Noise points (−1): reassigned to nearest non-noise cluster by Euclidean distance
+- More clusters than classes: Hungarian maps residuals to majority class (see hungarian.py)
+- Fewer than 2 non-noise clusters: falls back to k-means
+
+**Soft-label policy (Option H)**: GMM and Dictionary Learning use argmax (hard labels).
+Option S (soft/weighted targets) is a deferred ablation.
 
 ---
 
@@ -185,27 +191,31 @@ as the denominator for all 6 LSE calculations.
 
 ## Meta-Learner Setup
 
-- **Algorithms**: kNN and MLP (both from sklearn)
-- **Validation**: Leave-one-out cross-validation (LOO-CV) — dataset size is modest
-- **Primary metric**: Top-1 accuracy (did predicted best method actually rank first?)
-- **Secondary metric**: LSE prediction MAE (regression variant)
+- **Primary framework**: regression — predict the full 6-LSE vector; recommended method = argmax
+- **Two architectures**: Architecture A (multi-output) vs Architecture B (per-method, de Souto style)
+- **Validation**: LOO-CV — dataset size is modest
+- **Primary metric**: per-method LSE MAE
+- **All four metrics**: MAE, Spearman Rank Correlation (SRC), Top-1 accuracy, Top-2 + tie zone (0.02)
 - **Baselines**:
-  - Lower bound: always predict k-means
-  - Upper bound: exhaustive search (run all 6, pick best — oracle)
-- **SHAP**: Run on trained meta-learner after training, before building ablations
+  - Always k-means (lower bound)
+  - **de Souto default-ranking**: always predict the method with highest average LSE across training. This is the real baseline to beat — it uses no meta-features but captures which method wins on average.
+  - Oracle (upper bound)
+- **SHAP**: `shap.TreeExplainer` on the saved ExtraTrees estimator (exact, not approximate)
 
 ---
 
 ## Key Implementation Rules
 
 1. **Fix random seeds everywhere**: `random_state=42` for all sklearn objects, `torch.manual_seed(42)` for PyTorch
-2. **Same RF for all LSE**: default sklearn RandomForestClassifier, never tuned
-3. **Showcase datasets never touch training**: enforce this with a hard-coded exclusion list
-4. **Cache OpenML data**: set cache directory before any API calls
-5. **Extract functions from notebooks**: once a function works in a notebook, move it to `src/`
-6. **One notebook per phase**: do not put all phases in one notebook
-7. **LSE confidence floor**: if predicted LSE < 0.60, flag as high-risk in Streamlit UI and suggest fallback
-8. **Hungarian alignment is the only time true labels are seen**: never expose labels to the clustering step
+2. **Same RF for all LSE**: `class_weight='balanced'`, `random_state=42`, no other tuning
+3. **Balanced accuracy everywhere**: both groundtruth RF and pseudo-label RF use `balanced_accuracy_score`
+4. **MIN_CLASSES = 2**: binary datasets are valid for clustering-based pseudo-labeling
+5. **SKIP_IDS excluded at manifest level**: not filtered silently inside LSE loop
+6. **Showcase datasets never touch training**: enforced by hard-coded ID exclusion in 01_data_pull
+7. **Cache OpenML data**: set cache directory before any API calls
+8. **Fixed K=4 for Options B and C**: prevents dimensionality from confounding ablation
+9. **LSE confidence floor**: determined empirically from showcase calibration plots (not hardcoded 0.60)
+10. **Hungarian alignment is the only time true labels are seen during clustering**
 
 ---
 

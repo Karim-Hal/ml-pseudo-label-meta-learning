@@ -1,4 +1,24 @@
-"""Six pseudo-label generation methods for tabular classification."""
+"""Six pseudo-label generation methods for tabular classification.
+
+Soft-label policy (Option H — hard labels for all methods)
+----------------------------------------------------------
+GMM and Dictionary Learning produce soft outputs (posteriors / sparse codes).
+We use Option H: argmax to obtain hard cluster assignments, then pass through
+the standard Hungarian → RF pipeline identically to the hard-label methods.
+
+This choice makes the comparison between methods clean: every method feeds
+the same downstream pipeline. Option S (soft targets with per-row weights)
+is a future ablation; it requires modifying the RF training step.
+
+DBSCAN edge cases
+-----------------
+- Noise points (label -1): reassigned to their nearest non-noise cluster
+  via Euclidean distance in feature space before Hungarian alignment.
+- More clusters than classes: Hungarian pads with zero columns; unmatched
+  clusters map to the majority class (handled in hungarian.py).
+- Fewer clusters than classes: fine — Hungarian leaves some classes unmapped;
+  LSE will reflect the quality loss naturally.
+- Fewer than 2 non-noise clusters: falls back to k-means pseudo-labels."""
 
 import numpy as np
 
