@@ -331,14 +331,26 @@ if df_numeric.shape[1] == 0:
     st.error("No numeric feature columns found. Please upload a CSV with numeric data.")
     st.stop()
 
-# Impute any missing values
+# Check missing value fraction and impute if necessary
 if df_numeric.isnull().any().any():
-    n_missing = int(df_numeric.isnull().sum().sum())
+    total_cells  = df_numeric.shape[0] * df_numeric.shape[1]
+    n_missing    = int(df_numeric.isnull().sum().sum())
+    missing_frac = n_missing / total_cells
+
+    if missing_frac > 0.05:
+        st.warning(
+            f"**High missing value rate: {missing_frac:.1%}** ({n_missing} cells). "
+            "This exceeds the 5% threshold used during meta-learner training. "
+            "Predictions may be less reliable — consider cleaning your data first. "
+            "Proceeding with median imputation."
+        )
+    else:
+        st.info(f"Imputed {n_missing} missing values ({missing_frac:.1%}) with column medians.")
+
     imp = SimpleImputer(strategy="median")
     df_numeric = pd.DataFrame(
         imp.fit_transform(df_numeric), columns=df_numeric.columns
     )
-    st.warning(f"Imputed {n_missing} missing values with column medians.")
 
 st.success(f"Loaded: **{df_raw.shape[0]} rows** × **{df_numeric.shape[1]} numeric features**")
 

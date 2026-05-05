@@ -26,7 +26,8 @@ from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder, StandardScaler
-from sklearn.svm import SVC
+from sklearn.multioutput import MultiOutputRegressor
+from sklearn.svm import SVC, SVR
 
 LSE_COLS    = ['LSE_kmeans', 'LSE_dbscan', 'LSE_agg', 'LSE_gmm', 'LSE_autoenc', 'LSE_dictlearn']
 META_COLS   = ['dataset_id', 'best_method', 'gt_accuracy']
@@ -250,6 +251,22 @@ def loo_regress(pipeline, X, Y_lse, df_lse):
 
 # ── LOO-CV: Regression (Architecture B — per-method, de Souto style) ──────────
 
+def _unwrap_multioutput(pipeline):
+    """Replace any MultiOutputRegressor(est) step with est directly.
+
+    Architecture B fits single-output regressors per method column, so
+    MultiOutputRegressor wrappers (used to make SVR work with Architecture A)
+    must be peeled off before per-column fitting.
+    """
+    new_steps = []
+    for name, step in pipeline.steps:
+        if isinstance(step, MultiOutputRegressor):
+            new_steps.append((name, clone(step.estimator)))
+        else:
+            new_steps.append((name, step))
+    return Pipeline(new_steps)
+
+
 def loo_regress_per_method(pipeline_template, X, Y_lse, df_lse):
     """
     LOO-CV regression with 6 separate single-output regressors (one per method).
@@ -268,6 +285,8 @@ def loo_regress_per_method(pipeline_template, X, Y_lse, df_lse):
     -------
     Same dict structure as loo_regress()
     """
+    pipeline_template = _unwrap_multioutput(pipeline_template)
+
     loo = LeaveOneOut()
     Y_pred = np.zeros_like(Y_lse, dtype=float)
     nan_mask = np.isnan(Y_lse).any(axis=1)
@@ -397,5 +416,12 @@ def build_regressor_candidates(best_k=1, random_state=42):
             ('scale', StandardScaler()),
             ('reg', MLPRegressor(hidden_layer_sizes=(64, 32), alpha=1e-2,
                                   max_iter=1500, random_state=random_state)),
+        ]),
+        'SVR-RBF': Pipeline([
+            ('impute', SimpleImputer(strategy='median')),
+            ('scale', StandardScaler()),
+            ('reg', MultiOutputRegressor(
+                SVR(kernel='rbf', C=1.0, epsilon=0.05, gamma='scale')
+            )),
         ]),
     }

@@ -69,7 +69,7 @@ project/
 ├── src/
 │   ├── lse.py                   ← LSE computation (balanced accuracy)
 │   ├── clustering.py            ← all 6 pseudo-label generation methods
-│   ├── metafeatures.py          ← Option A/B/C feature extraction
+│   ├── metafeatures.py          ← Option A/B/C/D feature extraction
 │   └── hungarian.py             ← scipy linear_sum_assignment wrapper
 ├── outputs/
 │   ├── figures/                 ← SHAP plots, LSE distributions, ablation charts
@@ -84,7 +84,7 @@ project/
 
 The central artifact of the project. Located at `data/meta_table/meta_training.csv`.
 
-**Shape**: ~70 rows (one per OpenML dataset) × (~20 meta-feature columns + 6 LSE target columns + 1 best_method column)
+**Shape**: ~94 rows (one per OpenML dataset, after LSE filtering) × (~20 meta-feature columns + 6 LSE target columns + 1 best_method column)
 
 **Structure**:
 ```
@@ -115,21 +115,29 @@ meta-feature extractor (Option C). These are two completely separate uses of the
 
 ---
 
-## Meta-Feature Representations (5 Options for Ablation)
+## Meta-Feature Representations (Options for Ablation)
 
 **K is fixed at 4** for Options B and C — all datasets produce the same-length vector
 regardless of n_classes. This removes dimensionality as a confound.
 
+**Label policy**: Meta-features are computed from unlabeled data only. The user provides k
+(number of clusters) at deployment, but no labels are required. All label-dependent features
+(`silhouette_true`, `davies_bouldin_true`, landmarkers, `inter_intra_ratio`, `class_entropy`,
+`imbalance_ratio`) have been removed from Option A.
+
 | Option | Description | Dims | Role |
 |--------|-------------|------|------|
-| A | Hand-crafted (~30 via sklearn/scipy) | ~30 | Main approach |
+| A | Hand-crafted (~20 label-free features via sklearn/scipy) | ~20 | Main approach |
 | B | Autoencoder bottleneck (fixed K=4) | 8 | Ablation |
 | C | Dictionary Learning sparse codes (fixed K=4) | 8 | Novel contribution |
-| A+B | A concatenated with B | ~38 | Additive test |
-| A+C | A concatenated with C | ~38 | Main novel claim |
+| D | Distance-based features (Ferrari & de Castro 2015) | 19 | Novel contribution |
+| A+B | A concatenated with B | ~28 | Additive test |
+| A+C | A concatenated with C | ~28 | Main novel claim |
+| A+D | A concatenated with D | ~39 | Additive test |
+| C+D | C concatenated with D | 27 | Clustering-specific head-to-head |
 | Random | Random 8-dim features | 8 | Sanity baseline |
 
-If B or C alone cannot beat the random baseline, they add no useful signal.
+If B, C, or D alone cannot beat the random baseline, they add no useful signal.
 If A+C beats A alone, dictionary learning adds information beyond hand-crafted features.
 
 ---
@@ -163,11 +171,12 @@ Option S (soft/weighted targets) is a deferred ablation.
 
 | Tier | Size | Source | Purpose |
 |------|------|--------|---------|
-| Meta-training pool | 50–70 datasets | OpenML API | Train meta-learner. Never used for evaluation or storytelling. |
+| Meta-training pool | ~94 datasets | OpenML API | Train meta-learner. Never used for evaluation or storytelling. |
 | Evaluation showcase | 8–10 curated | UCI / Kaggle / OpenML | Test meta-learner on held-out data. Never seen during training. |
 | Synthetic (controlled) | 1 generated | sklearn make_classification | Separability ablation (dial 0→1, watch LSE track it). |
 
-**OpenML filters**: 100–100k rows, 2–10 classes, <200 features, no missing values.
+**OpenML filters**: 100–100k rows, 2–10 classes, 5–199 features, ≤5% missing values.
+**Missing value policy**: Datasets with ≤5% missing values are accepted; missing values are imputed via median (numeric) / mode (categorical) using `SimpleImputer` fit on the training split only, applied before clustering and LSE computation in notebook 02.
 **Cache downloads**: `openml.config.cache_directory = "./data/raw"`
 
 ---
@@ -210,12 +219,13 @@ Option S (soft/weighted targets) is a deferred ablation.
 2. **Same RF for all LSE**: `class_weight='balanced'`, `random_state=42`, no other tuning
 3. **Balanced accuracy everywhere**: both groundtruth RF and pseudo-label RF use `balanced_accuracy_score`
 4. **MIN_CLASSES = 2**: binary datasets are valid for clustering-based pseudo-labeling
-5. **SKIP_IDS excluded at manifest level**: not filtered silently inside LSE loop
+5. **SKIP_IDS excluded at manifest level**: not filtered silently inside LSE loop; every skip ID must have a documented reason string in the dict — bare IDs are not allowed
 6. **Showcase datasets never touch training**: enforced by hard-coded ID exclusion in 01_data_pull
 7. **Cache OpenML data**: set cache directory before any API calls
-8. **Fixed K=4 for Options B and C**: prevents dimensionality from confounding ablation
+8. **Fixed K=4 for Options B and C**: prevents dimensionality from confounding ablation. Option D is always 19-dim.
 9. **LSE confidence floor**: determined empirically from showcase calibration plots (not hardcoded 0.60)
 10. **Hungarian alignment is the only time true labels are seen during clustering**
+11. **MIN_FEATURES = 5**: removes trivial low-dimensional datasets not representative of real tabular ML
 
 ---
 

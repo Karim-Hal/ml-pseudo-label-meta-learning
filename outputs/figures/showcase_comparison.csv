@@ -1,0 +1,9 @@
+dataset,dataset_id,n_classes,gt_acc,predicted_method,predicted_lse_actual,oracle_method,oracle_lse,kmeans_lse,hit,gap_vs_oracle,gain_vs_kmeans,true_lse_kmeans,true_lse_dbscan,true_lse_agg,true_lse_gmm,true_lse_autoenc,true_lse_dictlearn,pred_lse_kmeans,pred_lse_dbscan,pred_lse_agg,pred_lse_gmm,pred_lse_autoenc,pred_lse_dictlearn
+Iris,61,3,0.9,gmm,1.037,gmm,1.037,0.889,True,0.0,0.148,0.8889,0.7407,0.8889,1.037,0.9259,0.4444,0.6638,0.5502,0.6476,0.6969,0.6691,0.5374
+Wine,187,3,1.0,gmm,1.0,kmeans,1.0,1.0,False,0.0,0.0,1.0,0.6429,0.9667,1.0,0.9762,0.7048,0.7473,0.6422,0.6984,0.7939,0.7586,0.6171
+Breast Cancer Wisconsin,15,2,0.952,kmeans,0.989,agg,1.0,0.989,False,0.01,0.0,0.9891,0.525,0.9995,0.9472,0.951,0.5578,0.8367,0.7171,0.8551,0.8706,0.844,0.6976
+Heart Disease (UCI),53,2,0.817,autoenc,1.0,autoenc,1.0,0.99,True,0.0,0.01,0.9898,0.949,0.9082,0.9337,1.0,0.6378,0.8433,0.6603,0.8005,0.8556,0.7855,0.606
+Palmer Penguins,40966,8,1.0,kmeans,0.252,agg,0.391,0.252,False,0.139,0.0,0.2518,0.1587,0.3909,0.306,0.2372,0.2925,0.5659,0.2621,0.556,0.5779,0.5253,0.4619
+Diabetes (Pima),37,2,0.741,gmm,0.722,kmeans,0.864,0.864,False,0.142,-0.142,0.8642,0.6617,0.7419,0.7217,0.7329,0.6024,0.8175,0.6432,0.7905,0.8322,0.7829,0.5998
+Vehicle Silhouettes,54,4,0.737,kmeans,0.529,kmeans,0.529,0.529,True,0.0,0.0,0.529,0.3471,0.5264,0.5201,0.5128,0.4681,0.5387,0.3666,0.5362,0.5322,0.5232,0.4689
+Adult Income,1590,2,0.707,gmm,0.877,kmeans,0.996,0.996,False,0.119,-0.119,0.9963,0.7454,,0.8768,0.765,0.7478,0.8244,0.707,0.7777,0.8266,0.7788,0.6862

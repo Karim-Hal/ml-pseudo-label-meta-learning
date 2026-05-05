@@ -1,0 +1,14 @@
+=== Manifest Diagnostics ===
+Total datasets       : 113
+Class distribution   : 30 binary, 26 3-4 class, 30 5-7 class, 27 8-10 class
+Instance range       : 100 – 83733  (median 1080)
+Feature range        : 8 – 145  (median 25)
+Feature types        : 76 purely numerical, 37 mixed
+Class balance        : 60 balanced (>0.5), 53 imbalanced (<=0.5)
+Missing values       : 106 datasets clean, 7 with 0-5% missing
+
+=== Validation ===
+Showcase IDs in manifest : 0 (must be 0)
+Skip IDs in manifest     : 0 (must be 0)
+Stratum counts (active)  : min=1 max=13 mean=4.9
+Empty strata             : 1 of 24

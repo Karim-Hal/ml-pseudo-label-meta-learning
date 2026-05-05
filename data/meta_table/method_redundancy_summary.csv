@@ -1,7 +1,7 @@
 ,wins,wins_pct,marginal,keep
-kmeans,26,30.2,0.0069,True
-dbscan,6,7.0,0.0035,True
-agg,7,8.1,0.0034,True
-gmm,29,33.7,0.027,True
-autoenc,13,15.1,0.0084,True
-dictlearn,5,5.8,0.0036,True
+kmeans,28,29.8,0.0092,True
+dbscan,5,5.3,0.0079,True
+agg,17,18.1,0.0101,True
+gmm,21,22.3,0.0193,True
+autoenc,13,13.8,0.0067,True
+dictlearn,10,10.6,0.0053,True
