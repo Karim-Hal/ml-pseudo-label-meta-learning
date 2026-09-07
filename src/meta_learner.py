@@ -17,6 +17,7 @@ Metrics
 import numpy as np
 import pandas as pd
 from collections import Counter
+from scipy.stats import binomtest, wilcoxon
 from sklearn.base import clone
 from sklearn.ensemble import ExtraTreesClassifier, ExtraTreesRegressor, RandomForestClassifier, RandomForestRegressor
 from sklearn.impute import SimpleImputer
@@ -156,6 +157,107 @@ def oracle_expected_lse(df, lse_cols=None):
     return float(df[lse_cols].max(axis=1).mean())
 
 
+def baseline_random(df, lse_cols=None, n_trials=2000, seed=42):
+    """
+    Uniform-random baseline: for each dataset, pick one of the six methods
+    with equal probability and score it. Repeated over `n_trials` draws to
+    report a stable expected value plus a 95% interval over the draws,
+    rather than a single lucky/unlucky random seed.
+
+    Analytically, expected accuracy is exactly 1/len(lse_cols) since exactly
+    one label is correct per dataset; the simulation is kept anyway so the
+    reported number carries an interval, not just a point guess.
+    """
+    if lse_cols is None:
+        lse_cols = LSE_COLS
+    rng = np.random.default_rng(seed)
+    n_methods = len(lse_cols)
+    method_names = np.array([c.replace('LSE_', '') for c in lse_cols])
+    lse_matrix = df[lse_cols].values
+    true_best = df['best_method'].values
+    n = len(df)
+
+    accs = np.empty(n_trials)
+    exp_lses = np.empty(n_trials)
+    for t in range(n_trials):
+        choice_idx = rng.integers(0, n_methods, size=n)
+        accs[t] = (method_names[choice_idx] == true_best).mean()
+        # nanmean: a handful of datasets have NaN for a method that failed to
+        # run on them (e.g. DBSCAN degenerate clustering); skip those draws
+        # the same way default_ranking_baseline's df.mean() already does,
+        # rather than letting one NaN pick poison the whole trial's average.
+        exp_lses[t] = np.nanmean(lse_matrix[np.arange(n), choice_idx])
+
+    return {
+        'accuracy_mean':      float(accs.mean()),
+        'accuracy_ci':        (float(np.percentile(accs, 2.5)), float(np.percentile(accs, 97.5))),
+        'expected_lse_mean':  float(exp_lses.mean()),
+        'expected_lse_ci':    (float(np.percentile(exp_lses, 2.5)), float(np.percentile(exp_lses, 97.5))),
+    }
+
+
+# ── Statistical significance ───────────────────────────────────────────────────
+
+def bootstrap_ci_diff(mask_a, mask_b, n_boot=10000, seed=42, ci=0.95):
+    """
+    Paired bootstrap CI for the accuracy difference mean(mask_a) - mean(mask_b),
+    resampling datasets (not predictions independently) since both masks come
+    from the same LOO-CV datasets in the same order.
+    """
+    mask_a = np.asarray(mask_a, dtype=bool)
+    mask_b = np.asarray(mask_b, dtype=bool)
+    n = len(mask_a)
+    rng = np.random.default_rng(seed)
+    idx_all = np.arange(n)
+    diffs = np.empty(n_boot)
+    for b in range(n_boot):
+        idx = rng.choice(idx_all, size=n, replace=True)
+        diffs[b] = mask_a[idx].mean() - mask_b[idx].mean()
+    lo_pct = (1 - ci) / 2 * 100
+    hi_pct = (1 + ci) / 2 * 100
+    return {
+        'observed_diff': float(mask_a.mean() - mask_b.mean()),
+        'ci_lo':         float(np.percentile(diffs, lo_pct)),
+        'ci_hi':         float(np.percentile(diffs, hi_pct)),
+    }
+
+
+def mcnemar_exact_test(mask_a, mask_b):
+    """
+    Exact McNemar's test on paired correct/incorrect masks from two classifiers
+    evaluated on the same LOO-CV datasets. Tests whether the two models'
+    disagreements are asymmetric (one tends to be right when the other is
+    wrong more often than the reverse) rather than whether either is "good".
+    """
+    mask_a = np.asarray(mask_a, dtype=bool)
+    mask_b = np.asarray(mask_b, dtype=bool)
+    n10 = int(np.sum(mask_a & ~mask_b))   # a correct, b incorrect
+    n01 = int(np.sum(~mask_a & mask_b))   # a incorrect, b correct
+    n_discordant = n10 + n01
+    if n_discordant == 0:
+        p_value = 1.0
+    else:
+        p_value = binomtest(min(n10, n01), n_discordant, 0.5, alternative='two-sided').pvalue
+    return {'n10': n10, 'n01': n01, 'n_discordant': n_discordant, 'p_value': float(p_value)}
+
+
+def wilcoxon_paired_errors(err_a, err_b):
+    """
+    Wilcoxon signed-rank test on paired per-dataset absolute errors between two
+    regression configurations evaluated on the same datasets in the same order.
+    Pairs with a NaN in either array (failed LSE for that dataset) are dropped.
+    """
+    err_a = np.asarray(err_a, dtype=float)
+    err_b = np.asarray(err_b, dtype=float)
+    valid = ~(np.isnan(err_a) | np.isnan(err_b))
+    a, b = err_a[valid], err_b[valid]
+    if len(a) == 0 or np.allclose(a, b):
+        return {'statistic': float('nan'), 'p_value': 1.0, 'n': int(valid.sum()), 'mean_diff': 0.0}
+    stat, p = wilcoxon(a, b)
+    return {'statistic': float(stat), 'p_value': float(p), 'n': int(valid.sum()),
+            'mean_diff': float((a - b).mean())}
+
+
 # ── LOO-CV: Classification ─────────────────────────────────────────────────────
 
 def loo_classify(pipeline, X, y):
@@ -237,6 +339,9 @@ def loo_regress(pipeline, X, Y_lse, df_lse):
         for i in range(len(Y_lse)) if not nan_mask[i]
     ])
 
+    abs_err_per_dataset = np.full(len(Y_lse), np.nan)
+    abs_err_per_dataset[valid] = np.abs(Y_pred[valid] - Y_lse[valid]).mean(axis=1)
+
     return {
         'mae_per_col':     mae_per_col,
         'mae_mean':        float(mae_per_col.mean()),
@@ -246,6 +351,7 @@ def loo_regress(pipeline, X, Y_lse, df_lse):
         'argmax_accuracy': top1_acc,          # alias for backward compat
         'predicted_lse':   Y_pred,
         'expected_lse':    float(np.nanmean(expected_lse)),
+        'abs_err_per_dataset': abs_err_per_dataset,
     }
 
 
@@ -322,6 +428,9 @@ def loo_regress_per_method(pipeline_template, X, Y_lse, df_lse):
         for i in range(len(Y_lse)) if not nan_mask[i]
     ])
 
+    abs_err_per_dataset = np.full(len(Y_lse), np.nan)
+    abs_err_per_dataset[valid] = np.abs(Y_pred[valid] - Y_lse[valid]).mean(axis=1)
+
     return {
         'mae_per_col':     mae_per_col,
         'mae_mean':        float(mae_per_col.mean()),
@@ -331,6 +440,7 @@ def loo_regress_per_method(pipeline_template, X, Y_lse, df_lse):
         'argmax_accuracy': top1_acc,
         'predicted_lse':   Y_pred,
         'expected_lse':    float(np.nanmean(expected_lse)),
+        'abs_err_per_dataset': abs_err_per_dataset,
     }
 
 
